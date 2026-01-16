@@ -1,16 +1,25 @@
 ---
-title: "exploratory analysis"
+title: "Exploratory analysis"
 format: html
 editor: visual
 ---
 
 ```{r}
 #| label: library-and-data-import
+#| message: FALSE
 
 library(readr)
 library(dplyr)
 library(ggplot2)
 
+files <- list.files(
+  path = ".",
+  pattern = "^[0-9]{4}\\.csv$",
+  full.names = TRUE
+)
+
+df_all <- lapply(files, read_csv) %>% 
+  bind_rows()
 
 
 ```
