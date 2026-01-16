@@ -21,7 +21,26 @@ files <- list.files(
 df_all <- lapply(files, read_csv) %>% 
   bind_rows()
 
-
 ```
 
 
+
+```{r}
+#| label: china-us-flights-extraction
+#| message: FALSE
+
+
+df_china <- df_all %>% 
+  filter(
+    ORIGIN_COUNTRY == "CN" | DEST_COUNTRY == "CN"
+  )
+
+# Filter for scheduled passenger service and excluding non-executed flights (payload = 0)
+
+df_china_passenger <- df_china %>% 
+  filter(
+    CLASS == "F",
+    PAYLOAD != 0
+  )
+
+```
