@@ -1,0 +1,28 @@
+---
+title: "exploratory analysis"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: library-and-data-import
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+df_2025 <- read_csv('2025.csv')
+df_2024 <- read_csv('2024.csv')
+
+```
+
+
+```{r}
+#| label: filtering-data
+
+sichuan <- df_2025 %>% 
+  filter(
+    CARRIER == "3U"
+  )
+
+```
