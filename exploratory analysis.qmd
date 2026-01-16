@@ -5,12 +5,22 @@ editor: visual
 ---
 
 ```{r}
-#| label: library-and-data-import
+#| label: library-import
 #| message: FALSE
 
 library(readr)
 library(dplyr)
 library(ggplot2)
+library(data.table)
+
+```
+
+
+
+
+```{r}
+#| label: data-import
+#| message: FALSE
 
 files <- list.files(
   path = ".",
@@ -21,26 +31,89 @@ files <- list.files(
 df_all <- lapply(files, read_csv) %>% 
   bind_rows()
 
+aircraft_type_map <- read_csv("L_AIRCRAFT_TYPE.csv") %>% 
+  rename(
+    AIRCRAFT_TYPE = Code,
+    AIRCRAFT = Description
+  )
+
 ```
-
-
 
 ```{r}
 #| label: china-us-flights-extraction
 #| message: FALSE
 
-
 df_china <- df_all %>% 
   filter(
-    ORIGIN_COUNTRY == "CN" | DEST_COUNTRY == "CN"
+    ORIGIN_COUNTRY == "CN" | 
+      DEST_COUNTRY == "CN" | 
+      ORIGIN == "HKG" | 
+      DEST == "HKG"
   )
 
-# Filter for scheduled passenger service and excluding non-executed flights (payload = 0)
+# Filter for scheduled passenger service, excluding non-executed flights (payload = 0) and filtering out non-relevant data fields
+# Departure Scheduled > 0 filtering out diversion or non-scheduled flights
 
 df_china_passenger <- df_china %>% 
   filter(
     CLASS == "F",
-    PAYLOAD != 0
+    PAYLOAD != 0,
+    DEPARTURES_SCHEDULED != 0
+  ) %>% select(
+    DEPARTURES_SCHEDULED, DEPARTURES_PERFORMED, SEATS, PASSENGERS, DISTANCE,
+    AIR_TIME, CARRIER, ORIGIN, DEST, AIRCRAFT_TYPE, YEAR, MONTH
   )
 
+china_carrier_map <- data.table(
+  CARRIER = c(
+    "UA", "DL", "MU", "CX", "HU", "CA", "3U",
+    "CZ", "AA", "HA", "AC", "MF", "JD"
+  ),
+  ALLIANCE = c(
+    "Star Alliance",   # UA
+    "SkyTeam",         # DL
+    "SkyTeam",         # MU
+    "oneworld",        # CX
+    "Unaffiliated",    # HU (HNA Group, no alliance)
+    "Star Alliance",   # CA
+    "Unaffiliated",   # 3U (Sichuan Airlines)
+    "SkyTeam",         # CZ (historical; left in 2019)
+    "oneworld",        # AA
+    "Unaffiliated",    # HA
+    "Star Alliance",   # AC
+    "SkyTeam",         # MF (XiamenAir)
+    "Unaffiliated"     # JD (Capital Airlines)
+  )
+)
+
+setDT(df_china_passenger)
+df_china_passenger <- china_carrier_map[df_china_passenger, on = "CARRIER"]
+
 ```
+
+
+
+```{r}
+#| label: summary-statistics-china-passenger-flight
+
+df_cn_load <- df_china_passenger %>% 
+  group_by(YEAR) %>% 
+  summarise(
+    total_passengers = sum(PASSENGERS),
+    total_seats = sum(SEATS)
+  ) %>% 
+  mutate(
+    load_factor = total_passengers / total_seats * 100
+  )
+
+df_cn_airlines <- df_china_passenger %>% 
+  group_by(CARRIER) %>% 
+  summarise(
+    passenger_by_airline = sum(PASSENGERS)
+  )
+
+
+
+```
+
+
