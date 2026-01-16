@@ -1,15 +1,3 @@
-Code,Description
-"A","Scheduled First Class Passenger/ Cargo Service A"
-"C","Scheduled Coach Passenger/ Cargo Service C"
-"E","Scheduled Mixed First Class And Coach, Passenger/ Cargo Service E"
-"F","Scheduled Passenger/ Cargo Service F"
-"G","Scheduled All Cargo Service G"
-"H","Humane Reason Unscheduled, Non-Revenue-Generating"
-"K","Scheduled Service K (F+G)"
-"L","Non-Scheduled Civilian Passenger/ Cargo Service L"
-"N","Non-Scheduled Military Passenger/ Cargo Service N"
-"P","Non-Scheduled Civilian All Cargo Service P"
-"Q","Non-Scheduled Services (Other Than Charter) Q"
-"R","Non-Scheduled Military All Cargo R"
-"V","Non-Scheduled Service V (L+N+P+R) For U.S. Carrier And (L+P+Q) For Foreign Carrier"
-"Z","All Service Z (K+V)"
+version https://git-lfs.github.com/spec/v1
+oid sha256:4408e0f43144d0aa490d0e00f5b8e95b45551c87de4a34aee6b2c7dd69b411ff
+size 744
