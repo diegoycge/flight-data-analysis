@@ -51,43 +51,35 @@ df_china <- df_all %>%
       DEST == "HKG"
   )
 
-# Filter for scheduled passenger service, excluding non-executed flights (payload = 0) and filtering out non-relevant data fields
-# Departure Scheduled > 0 filtering out diversion or non-scheduled flights
+# Filter for scheduled passenger service, and filtering out non-relevant data fields
+# Filter for more than 10 passengers on the route in the particular month
+# Filtering out airport that we know to not have regularly scheduled U.S.-China passenger service that show up in the data set, like Harbin (HRB) and Pittsburgh (PIT)
+
+no_known_service_airports <- c("HRB", "PIT", "ANC", "MSP", "TUL", "SYR",
+                               "STL", "PHL", "PDX", "OKC", "MDT", "KMG",
+                               "KHN", "IAG", "HSV", "AFW", "BHM", "BNA", "CDB",
+                               "CGO", "CMH", "DLC", "ELP", "GEG", "GRB", "HAK", 
+                               "HET", "OKC")
 
 df_china_passenger <- df_china %>% 
   filter(
-    CLASS == "F",
-    PAYLOAD != 0,
-    DEPARTURES_SCHEDULED != 0
+    CLASS == "F"
   ) %>% select(
     DEPARTURES_SCHEDULED, DEPARTURES_PERFORMED, SEATS, PASSENGERS, DISTANCE,
     AIR_TIME, CARRIER, ORIGIN, DEST, AIRCRAFT_TYPE, YEAR, MONTH
-  )
+  ) %>% 
+  filter(PASSENGERS > 10,
+         !(ORIGIN %in% no_known_service_airports),
+         !(DEST %in% no_known_service_airports))
 
-china_carrier_map <- data.table(
-  CARRIER = c(
-    "UA", "DL", "MU", "CX", "HU", "CA", "3U",
-    "CZ", "AA", "HA", "AC", "MF", "JD"
-  ),
-  ALLIANCE = c(
-    "Star Alliance",   # UA
-    "SkyTeam",         # DL
-    "SkyTeam",         # MU
-    "oneworld",        # CX
-    "Unaffiliated",    # HU (HNA Group, no alliance)
-    "Star Alliance",   # CA
-    "Unaffiliated",   # 3U (Sichuan Airlines)
-    "SkyTeam",         # CZ (historical; left in 2019)
-    "oneworld",        # AA
-    "Unaffiliated",    # HA
-    "Star Alliance",   # AC
-    "SkyTeam",         # MF (XiamenAir)
-    "Unaffiliated"     # JD (Capital Airlines)
-  )
-)
+unique(df_china_passenger$ORIGIN)
+unique(df_china_passenger$DEST)
 
-setDT(df_china_passenger)
-df_china_passenger <- china_carrier_map[df_china_passenger, on = "CARRIER"]
+china_airports <- c("HKG", "PVG", "PEK", "CTU", "HGH", "XIY", "CAN", "WUH",
+                    "NKG", "CTU", "SZX", "CSX", "TNA", "TAO", "XIY", "XMN", "CKG",
+                    "FOC", "SHE", "TFU")
+
+
 
 ```
 
@@ -107,7 +99,7 @@ df_cn_load <- df_china_passenger %>%
   )
 
 df_cn_airlines <- df_china_passenger %>% 
-  group_by(CARRIER) %>% 
+  group_by(CARRIER, YEAR) %>% 
   summarise(
     passenger_by_airline = sum(PASSENGERS)
   )
