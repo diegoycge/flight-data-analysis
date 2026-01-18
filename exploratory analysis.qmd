@@ -1,8 +1,11 @@
 ---
 title: "Exploratory analysis"
 format: html
-editor: visual
+editor: source
 ---
+
+
+## Import and Prep Work
 
 ```{r}
 #| label: library-import
@@ -12,10 +15,99 @@ library(readr)
 library(dplyr)
 library(ggplot2)
 library(data.table)
+library(plotly)
+library(shiny)
+library(forcats)
+library(stringr)
 
 ```
 
+```{r}
+#| label: normalize-aircraft-type-function
 
+normalize_aircraft <- function(x) {
+  s <- str_to_upper(str_trim(x))
+
+  # quick normalize punctuation / spacing
+  s <- s %>%
+    str_replace_all("[–—−]", "-") %>%   # normalize dashes
+    str_replace_all("\\s+", " ") %>%
+    str_replace_all("AIRBUS INDUSTRIE\\s+", "") %>%
+    str_replace_all("BOEING\\s+", "") %>%
+    str_replace_all("EMBRAER\\s+", "E") %>%
+    str_replace_all("MCDONNELL DOUGLAS\\s+", "") %>%
+    str_replace_all("AIRBUS\\s+", "") %>%
+    str_replace_all("INDUSTRIE\\s+", "")
+
+  out <- case_when(
+    # Airbus A320 family
+    str_detect(s, "^A319") ~ "A319",
+    str_detect(s, "^A320") & str_detect(s, "200N|\\bN\\b") ~ "A20N",
+    str_detect(s, "^A320") ~ "A320",
+    str_detect(s, "^A321") & str_detect(s, "200N|\\bN\\b|LR") ~ "A21N",
+    str_detect(s, "^A321") ~ "A321",
+
+    # A220 (often shows as BD-500-1A10/1A11)
+    str_detect(s, "^A220-?100|BD-500-1A10") ~ "A221",
+    str_detect(s, "^A220-?300|BD-500-1A11") ~ "A223",
+
+    # A330 (incl neo)
+    str_detect(s, "^A330-?200") ~ "A332",
+    str_detect(s, "^A330-?300") ~ "A333",
+    str_detect(s, "^A330-?900") ~ "A339",
+
+    # A350
+    str_detect(s, "^A359|A350-?900") ~ "A359",
+    str_detect(s, "^A35K|A350-?1000") ~ "A35K",
+
+    # Boeing 717 / 737 / 757 / 767 / 747 / 777 / 787
+    str_detect(s, "^717-?200") ~ "B712",
+
+    # 737 variants
+    str_detect(s, "^B737\\b") ~ "B737",
+    str_detect(s, "737-?400") ~ "B734",
+    str_detect(s, "737-?800|\\bB738\\b") ~ "B738",
+    str_detect(s, "737-?900ER") ~ "B739ER",
+    str_detect(s, "737-?900") ~ "B739",
+    str_detect(s, "737 MAX 800") ~ "B38M",
+    str_detect(s, "737 MAX 900") ~ "B39M",
+
+    # 757
+    str_detect(s, "757-?200") ~ "B752",
+    str_detect(s, "757-?300") ~ "B753",
+
+    # 767
+    str_detect(s, "767-?400") ~ "B764",
+    str_detect(s, "^B767\\b") ~ "B767",
+
+    # 747
+    str_detect(s, "747SP") ~ "B74S",
+    str_detect(s, "747-?400") ~ "B744",
+
+    # 777
+    str_detect(s, "777-?200|\\bB777-200\\b") ~ "B777-200",
+    str_detect(s, "777-?300|\\bB777-300\\b") ~ "B777-300",
+
+    # 787
+    str_detect(s, "787-?800|\\bB787-800\\b") ~ "B787-800",
+    str_detect(s, "787-?900|\\bB787-900\\b") ~ "B787-900",
+    str_detect(s, "787-?10|\\bB787-10\\b") ~ "B787-10",
+
+    # Embraer
+    str_detect(s, "^E ?190|\\bE190\\b") ~ "E190",
+
+    # MD-80 / MD-90 / DC-9
+    str_detect(s, "DC9.*SUPER 80|MD8[1-9]|MD-?8[1-9]") ~ "MD80",
+    str_detect(s, "MD-?90") ~ "MD90",
+    str_detect(s, "DC-?9-?50") ~ "DC9-50",
+
+    TRUE ~ NA_character_
+  )
+
+  out
+}
+
+```
 
 
 ```{r}
@@ -25,8 +117,8 @@ library(data.table)
 files <- list.files(
   path = ".",
   pattern = "^[0-9]{4}\\.csv$",
-  full.names = TRUE
-)
+  full.names = TRUE)
+
 
 df_all <- lapply(files, read_csv) %>% 
   bind_rows()
@@ -35,10 +127,47 @@ aircraft_type_map <- read_csv("L_AIRCRAFT_TYPE.csv") %>%
   rename(
     AIRCRAFT_TYPE = Code,
     AIRCRAFT = Description
+  ) %>% 
+  mutate(
+    AIRCRAFT_NORMALIZED = normalize_aircraft(AIRCRAFT)
   )
 
 ```
 
+
+## All U.S. Carriers
+
+```{r}
+#| label: us-carriers-extract
+
+## Passenger flights only
+
+df_us_carriers <- df_all %>% 
+  filter(
+    CARRIER %in% c(
+      "F9", "AA", "B6", "DL", "UA", "NK", "AS"
+    ),
+    CLASS == "F"
+  ) %>% 
+  select(
+    DEPARTURES_SCHEDULED, DEPARTURES_PERFORMED, SEATS, PASSENGERS,
+    DISTANCE, UNIQUE_CARRIER, REGION, ORIGIN, ORIGIN_STATE_ABR,
+    DEST, DEST_STATE_ABR, AIRCRAFT_TYPE, YEAR, MONTH, CLASS
+  ) %>% 
+  left_join(aircraft_type_map, by = "AIRCRAFT_TYPE") %>% 
+  select(
+    -AIRCRAFT,
+    -AIRCRAFT_TYPE
+  ) %>% 
+  rename(
+    AIRCRAFT = AIRCRAFT_NORMALIZED
+  )
+
+```
+
+
+
+## U.S.-China Flights
 ```{r}
 #| label: china-us-flights-extraction
 #| message: FALSE
@@ -53,6 +182,7 @@ df_china <- df_all %>%
 
 # Filter for scheduled passenger service, and filtering out non-relevant data fields
 # Filter for more than 10 passengers on the route in the particular month
+# Filter for more than 1 flight performed per month for regularly scheduled service
 # Filtering out airport that we know to not have regularly scheduled U.S.-China passenger service that show up in the data set, like Harbin (HRB) and Pittsburgh (PIT)
 
 no_known_service_airports <- c("HRB", "PIT", "ANC", "MSP", "TUL", "SYR",
@@ -69,43 +199,130 @@ df_china_passenger <- df_china %>%
     AIR_TIME, CARRIER, ORIGIN, DEST, AIRCRAFT_TYPE, YEAR, MONTH
   ) %>% 
   filter(PASSENGERS > 10,
+         DEPARTURES_PERFORMED > 1,
          !(ORIGIN %in% no_known_service_airports),
-         !(DEST %in% no_known_service_airports))
-
-unique(df_china_passenger$ORIGIN)
-unique(df_china_passenger$DEST)
-
-china_airports <- c("HKG", "PVG", "PEK", "CTU", "HGH", "XIY", "CAN", "WUH",
-                    "NKG", "CTU", "SZX", "CSX", "TNA", "TAO", "XIY", "XMN", "CKG",
-                    "FOC", "SHE", "TFU")
-
-
-
+         !(DEST %in% no_known_service_airports)) %>% 
+  left_join(aircraft_type_map, by = "AIRCRAFT_TYPE") %>% 
+  select(!AIRCRAFT_TYPE)
 ```
+
 
 
 
 ```{r}
-#| label: summary-statistics-china-passenger-flight
+#| label: china-us-routes-summary-stat
+china_airports <- c("HKG", "PVG", "PEK", "CTU", "HGH", "XIY", "CAN", "WUH",
+                    "NKG", "CTU", "SZX", "CSX", "TNA", "TAO", "XIY", "XMN", 
+                    "CKG", "FOC", "SHE", "TFU")
 
-df_cn_load <- df_china_passenger %>% 
-  group_by(YEAR) %>% 
+us_airports <- c("SFO", "LAX", "JFK", "SEA", "DTW", "EWR", "SPN", "BOS", "ORD",
+                 "SJC", "IAD", "HNL", "IAH", "GUM", "DFW", "LAS", "ATL")
+
+df_china_passenger_route_departure_performed_by_year <- df_china_passenger %>% 
+  group_by(YEAR, ORIGIN, DEST, AIRCRAFT) %>% 
   summarise(
-    total_passengers = sum(PASSENGERS),
-    total_seats = sum(SEATS)
+    departures = sum(DEPARTURES_PERFORMED, na.rm = TRUE),
+    passengers = sum(PASSENGERS, na.rm = TRUE),
+    seats = sum(SEATS, na.rm = TRUE)
   ) %>% 
   mutate(
-    load_factor = total_passengers / total_seats * 100
-  )
-
-df_cn_airlines <- df_china_passenger %>% 
-  group_by(CARRIER, YEAR) %>% 
+    cn_airport = case_when(
+      ORIGIN %in% china_airports ~ ORIGIN,
+      DEST %in% china_airports ~ DEST,
+      TRUE ~ NA_character_
+    ),
+    us_airport = case_when(
+      ORIGIN %in% us_airports ~ ORIGIN,
+      DEST %in% us_airports ~ DEST,
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  filter(!is.na(cn_airport), !is.na(us_airport)) %>% 
+  group_by(YEAR, cn_airport, us_airport, AIRCRAFT) %>% 
   summarise(
-    passenger_by_airline = sum(PASSENGERS)
-  )
-
-
+    departures = sum(departures),
+    passengers = sum(passengers),
+    seats = sum(seats),
+    .groups = "drop"
+  ) %>% 
+  mutate(
+    load_factor_average_per_route_per_year = passengers / seats * 100,
+    capacity_per_departure = seats / departures
+  ) %>% 
+  arrange(desc(load_factor_average_per_route_per_year))
 
 ```
+
+
+```{r}
+#| label: plotly-visualizations-china-us-routes
+
+plot_ly(
+  df_china_passenger_route_departure_performed_by_year,
+  x = ~departures,
+  y = ~passengers,
+  color = ~load_factor_average_per_route_per_year,
+  size = ~seats,
+  sizes = c(10, 60),
+  text = ~paste(
+    "Route:", cn_airport, "-", us_airport,
+    "<br>Year:", YEAR,
+    "<br>Load Factor:", round(load_factor_average_per_route_per_year, 1), "%"
+  ),
+  type = "scatter",
+  mode = "markers"
+)
+
+```
+
+
+```{r}
+
+df_cn_us_routes_summary_shiny_table <- 
+  df_china_passenger_route_departure_performed_by_year %>% mutate(
+    route = paste(cn_airport, "-", us_airport)
+  )
+ui <- fluidPage(
+  sliderInput(
+    "year", "Year",
+    min = min(df_cn_us_routes_summary_shiny_table$YEAR),
+    max = max(df_cn_us_routes_summary_shiny_table$YEAR),
+    value = max(df_cn_us_routes_summary_shiny_table$YEAR),
+    step = 1,
+    sep = ""
+  ),
+  plotlyOutput("plot", height = "600px")
+)
+
+server <- function(input, output) {
+
+  output$plot <- renderPlotly({
+    df_cn_us_routes_summary_shiny_table %>%
+      filter(YEAR == input$year) %>%
+      plot_ly(
+        x = ~departures,
+        y = ~passengers,
+        size = ~seats,
+        color = ~load_factor_average_per_route_per_year,
+        text = ~paste(
+          "<b>Route:</b>", cn_airport, "–", us_airport,
+          "<br><b>Departures:</b>", departures,
+          "<br><b>Passengers:</b>", passengers,
+          "<br><b>Seats:</b>", seats,
+          "<br><b>Load factor:</b>",
+          round(load_factor_average_per_route_per_year, 1), "%"
+        ),
+        hoverinfo = "text",
+        type = "scatter",
+        mode = "markers"
+      )
+  })
+}
+
+shinyApp(ui, server)
+
+```
+
+
 
 
