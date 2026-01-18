@@ -10,6 +10,7 @@ editor: source
 ```{r}
 #| label: library-import
 #| message: FALSE
+#| warning: FALSE
 
 library(readr)
 library(dplyr)
@@ -19,6 +20,7 @@ library(plotly)
 library(shiny)
 library(forcats)
 library(stringr)
+library(marginaleffects)
 
 ```
 
@@ -141,6 +143,8 @@ aircraft_type_map <- read_csv("L_AIRCRAFT_TYPE.csv") %>%
 
 ## All U.S. Carriers
 
+### Extracting dataset
+
 ```{r}
 #| label: us-carriers-extract
 
@@ -179,6 +183,9 @@ df_us_carriers <- df_all %>%
 
 ```
 
+
+### RDU Analysis
+
 ```{r}
 #| label: rdu-flight-trends
 
@@ -189,7 +196,6 @@ df_rdu_us_carriers <- df_us_carriers %>%
     DEPARTURES_SCHEDULED > 3,
     PASSENGERS > 5
   )
-
 
 df_rdu_us_carrier_routes <- df_rdu_us_carriers %>% 
   group_by(YEAR, CARRIER, CARRIER_TYPE, ORIGIN, DEST, DISTANCE) %>% 
@@ -233,9 +239,6 @@ df_rdu_us_carrier_routes_competition <- df_rdu_us_carrier_routes %>%
   ) %>%
   ungroup()
 
-  
-
-
 ```
 
 
@@ -247,10 +250,10 @@ df_rdu_us_carrier_routes_competition <- df_rdu_us_carrier_routes %>%
 df_china <- df_all %>% 
   filter(
     ORIGIN_COUNTRY == "CN" | 
-      DEST_COUNTRY == "CN" | 
-      ORIGIN == "HKG" | 
-      DEST == "HKG"
+      DEST_COUNTRY == "CN"
   )
+
+# Mainland China only
 
 # Filter for scheduled passenger service, and filtering out non-relevant data fields
 # Filter for more than 10 passengers on the route in the particular month
@@ -275,7 +278,9 @@ df_china_passenger <- df_china %>%
          !(ORIGIN %in% no_known_service_airports),
          !(DEST %in% no_known_service_airports)) %>% 
   left_join(aircraft_type_map, by = "AIRCRAFT_TYPE") %>% 
-  select(!AIRCRAFT_TYPE)
+  select(!AIRCRAFT_TYPE) %>% 
+  select(!AIRCRAFT) %>% 
+  rename(AIRCRAFT = AIRCRAFT_NORMALIZED)
 ```
 
 
@@ -283,15 +288,17 @@ df_china_passenger <- df_china %>%
 
 ```{r}
 #| label: china-us-routes-summary-stat
-china_airports <- c("HKG", "PVG", "PEK", "CTU", "HGH", "XIY", "CAN", "WUH",
+china_airports <- c("PVG", "PEK", "CTU", "HGH", "XIY", "CAN", "WUH",
                     "NKG", "CTU", "SZX", "CSX", "TNA", "TAO", "XIY", "XMN", 
                     "CKG", "FOC", "SHE", "TFU")
 
-us_airports <- c("SFO", "LAX", "JFK", "SEA", "DTW", "EWR", "SPN", "BOS", "ORD",
-                 "SJC", "IAD", "HNL", "IAH", "GUM", "DFW", "LAS", "ATL")
+us_airports <- c("SFO", "LAX", "JFK", "SEA", "DTW", "EWR", "BOS", "ORD",
+                 "SJC", "IAD", "IAH", "DFW", "LAS", "ATL")
+
+# Continental U.S. only: HNL, GUM, SPN excluded.
 
 df_china_passenger_route_departure_performed_by_year <- df_china_passenger %>% 
-  group_by(YEAR, ORIGIN, DEST, AIRCRAFT) %>% 
+  group_by(YEAR, ORIGIN, DEST, AIRCRAFT, CARRIER, MONTH) %>% 
   summarise(
     departures = sum(DEPARTURES_PERFORMED, na.rm = TRUE),
     passengers = sum(PASSENGERS, na.rm = TRUE),
@@ -310,7 +317,7 @@ df_china_passenger_route_departure_performed_by_year <- df_china_passenger %>%
     )
   ) %>% 
   filter(!is.na(cn_airport), !is.na(us_airport)) %>% 
-  group_by(YEAR, cn_airport, us_airport, AIRCRAFT) %>% 
+  group_by(YEAR, cn_airport, us_airport, AIRCRAFT, CARRIER, MONTH) %>% 
   summarise(
     departures = sum(departures),
     passengers = sum(passengers),
@@ -318,28 +325,118 @@ df_china_passenger_route_departure_performed_by_year <- df_china_passenger %>%
     .groups = "drop"
   ) %>% 
   mutate(
-    load_factor_average_per_route_per_year = passengers / seats * 100,
-    capacity_per_departure = seats / departures
+    load_factor = passengers / seats * 100,
+    capacity_per_departure = seats / departures,
+    policy_regime = case_when(
+      YEAR <= 2019 ~ "pre_covid",
+      YEAR >= 2020 & YEAR <= 2022 ~ "china_lockdown",
+      YEAR >= 2023 ~ "post_covid",
+      TRUE ~ NA
+    ),
+    chinese_carrier = case_when(
+      CARRIER %in% c("MF", "CZ", "MU", "3U", "CA", "HU") ~ TRUE,
+      TRUE ~ FALSE
+    )
   ) %>% 
-  arrange(desc(load_factor_average_per_route_per_year))
+  mutate(policy_regime = fct_relevel(policy_regime, "pre_covid"),
+         route = paste(cn_airport, "-", us_airport))
 
 ```
+
+### Models for China-U.S. Flights Responding to COVID by carrier nationality
+
+```{r}
+
+capacity_response_model <- lm(
+  log(seats) ~
+    policy_regime * chinese_carrier +
+    factor(route) +
+    factor(CARRIER) +
+    factor(MONTH),
+  data = df_china_passenger_route_departure_performed_by_year
+)
+
+frequency_response_model <- lm(
+  log(departures) ~
+    policy_regime * chinese_carrier +
+    factor(route) +
+    factor(CARRIER) +
+    factor(MONTH),
+  data = df_china_passenger_route_departure_performed_by_year
+)
+
+utilization_response_model <- lm(
+  load_factor ~
+    policy_regime * chinese_carrier +
+    factor(route) +
+    factor(CARRIER) +
+    factor(MONTH),
+  data = df_china_passenger_route_departure_performed_by_year
+)
+
+strategy_model <- lm(
+  capacity_per_departure ~ 
+    policy_regime * chinese_carrier +
+    factor(cn_airport) +
+    factor(us_airport) +
+    factor(CARRIER) +
+    factor(MONTH),
+  data = df_china_passenger_route_departure_performed_by_year
+)
+
+summary(capacity_response_model)
+summary(frequency_response_model)
+summary(utilization_response_model)
+summary(strategy_model)
+
+
+pred <- predictions(
+  utilization_response_model,
+  newdata = datagrid(
+    policy_regime = c("pre_covid", "china_lockdown", "post_covid"),
+    chinese_carrier = c(FALSE, TRUE)
+  )
+)
+
+ggplot(pred, aes(
+  x = policy_regime,
+  y = estimate,
+  color = chinese_carrier,
+  group = chinese_carrier
+)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.15
+  ) +
+  labs(
+    x = "Policy regime",
+    y = "Predicted load factor (%)",
+    color = "Chinese carrier",
+    title = "Chinese carriers operate significantly fuller planes post-covid",
+    subtitle = "Predicted from route-, carrier-, and month-fixed effects model"
+  ) +
+  theme_minimal()
+
+```
+
 
 
 ```{r}
 #| label: plotly-visualizations-china-us-routes
 
-plot_ly(
+china_us_load_factor_viz <- plot_ly(
   df_china_passenger_route_departure_performed_by_year,
   x = ~departures,
   y = ~passengers,
-  color = ~load_factor_average_per_route_per_year,
+  color = ~load_factor_per_airline_per_route_per_year,
   size = ~seats,
   sizes = c(10, 60),
   text = ~paste(
     "Route:", cn_airport, "-", us_airport,
     "<br>Year:", YEAR,
-    "<br>Load Factor:", round(load_factor_average_per_route_per_year, 1), "%"
+    "<br>Load Factor:", round(load_factor_per_airline_per_route_per_year, 1), "%"
   ),
   type = "scatter",
   mode = "markers"
@@ -377,14 +474,14 @@ server <- function(input, output) {
         x = ~departures,
         y = ~passengers,
         size = ~seats,
-        color = ~load_factor_average_per_route_per_year,
+        color = ~load_factor,
         text = ~paste(
           "<b>Route:</b>", cn_airport, "–", us_airport,
           "<br><b>Departures:</b>", departures,
           "<br><b>Passengers:</b>", passengers,
           "<br><b>Seats:</b>", seats,
           "<br><b>Load factor:</b>",
-          round(load_factor_average_per_route_per_year, 1), "%"
+          round(load_factor, 1), "%"
         ),
         hoverinfo = "text",
         type = "scatter",
