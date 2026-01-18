@@ -71,6 +71,9 @@ normalize_aircraft <- function(x) {
     str_detect(s, "737-?900") ~ "B739",
     str_detect(s, "737 MAX 800") ~ "B38M",
     str_detect(s, "737 MAX 900") ~ "B39M",
+    str_detect(s, "^737-300") ~ "B733",
+    str_detect(s, "^737-500") ~ "B735",
+    str_detect(s, "737-700") & str_detect(s, "MAX|MAX 7") ~ "B37M",
 
     # 757
     str_detect(s, "757-?200") ~ "B752",
@@ -79,6 +82,7 @@ normalize_aircraft <- function(x) {
     # 767
     str_detect(s, "767-?400") ~ "B764",
     str_detect(s, "^B767\\b") ~ "B767",
+    str_detect(s, "^767\\b")  ~ "B767",
 
     # 747
     str_detect(s, "747SP") ~ "B74S",
@@ -145,26 +149,94 @@ aircraft_type_map <- read_csv("L_AIRCRAFT_TYPE.csv") %>%
 df_us_carriers <- df_all %>% 
   filter(
     CARRIER %in% c(
-      "F9", "AA", "B6", "DL", "UA", "NK", "AS"
+      "F9", "AA", "B6", "DL", "UA", "NK", "AS", "WN"
     ),
     CLASS == "F"
   ) %>% 
   select(
     DEPARTURES_SCHEDULED, DEPARTURES_PERFORMED, SEATS, PASSENGERS,
-    DISTANCE, UNIQUE_CARRIER, REGION, ORIGIN, ORIGIN_STATE_ABR,
-    DEST, DEST_STATE_ABR, AIRCRAFT_TYPE, YEAR, MONTH, CLASS
+    DISTANCE, CARRIER, REGION, ORIGIN, ORIGIN_STATE_ABR,
+    DEST, DEST_STATE_ABR, AIRCRAFT_TYPE, YEAR, MONTH
   ) %>% 
   left_join(aircraft_type_map, by = "AIRCRAFT_TYPE") %>% 
   select(
-    -AIRCRAFT,
-    -AIRCRAFT_TYPE
+    -AIRCRAFT_TYPE,
+    -AIRCRAFT
   ) %>% 
   rename(
     AIRCRAFT = AIRCRAFT_NORMALIZED
+  ) %>% 
+  mutate(
+    CARRIER_TYPE = case_when(
+      CARRIER %in% c("F9", "NK") ~ "Ultra low cost carrier",
+      CARRIER %in% c("B6", "WN") ~ "Low cost carrier",
+      CARRIER %in% c("AA", "DL", "UA", "AS") ~ "Full service carrier",
+      TRUE ~ NA
+    )
   )
+
+
 
 ```
 
+```{r}
+#| label: rdu-flight-trends
+
+df_rdu_us_carriers <- df_us_carriers %>% 
+  filter(
+    ORIGIN == "RDU" | DEST == "RDU", 
+    DEPARTURES_PERFORMED > 0,
+    DEPARTURES_SCHEDULED > 3,
+    PASSENGERS > 5
+  )
+
+
+df_rdu_us_carrier_routes <- df_rdu_us_carriers %>% 
+  group_by(YEAR, CARRIER, CARRIER_TYPE, ORIGIN, DEST, DISTANCE) %>% 
+  summarise(
+    departures = sum(DEPARTURES_PERFORMED, na.rm = TRUE),
+    passengers = sum(PASSENGERS, na.rm = TRUE),
+    seats = sum(SEATS, na.rm = TRUE)
+  ) %>% 
+  mutate(
+    other_airport = case_when(
+      ORIGIN != "RDU" ~ ORIGIN,
+      DEST != "RDU" ~ DEST,
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  filter(!(is.na(other_airport))) %>% 
+  group_by(YEAR, other_airport, CARRIER_TYPE, CARRIER, DISTANCE) %>% 
+  summarise(
+    departures = sum(departures),
+    passengers = sum(passengers),
+    seats = sum(seats),
+    .groups = "drop"
+  ) %>% 
+  mutate(
+    load_factor_airline_per_route_per_year = passengers / seats * 100,
+    capacity_per_departure = seats / departures,
+    passenger_per_departure = passengers / departures
+  )
+
+
+df_rdu_us_carrier_routes_competition <- df_rdu_us_carrier_routes %>% 
+  group_by(YEAR, other_airport) %>%
+  mutate(
+    competitor_same_year = n_distinct(CARRIER) - 1L,
+    ULCC_present = any(CARRIER_TYPE == "Ultra low cost carrier", na.rm = TRUE),
+    load_factor_route_year = if_else(
+      sum(seats, na.rm = TRUE) > 0,
+      100 * sum(passengers, na.rm = TRUE) / sum(seats, na.rm = TRUE),
+      NA_real_
+    )
+  ) %>%
+  ungroup()
+
+  
+
+
+```
 
 
 ## U.S.-China Flights
@@ -277,6 +349,8 @@ plot_ly(
 
 
 ```{r}
+#| label: shiny-viz
+
 
 df_cn_us_routes_summary_shiny_table <- 
   df_china_passenger_route_departure_performed_by_year %>% mutate(
