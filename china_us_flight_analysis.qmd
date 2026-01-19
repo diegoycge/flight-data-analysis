@@ -1,0 +1,280 @@
+---
+title: "china_us_flight_analysis"
+format: html
+author: "Diego Ge"
+---
+
+```{r}
+#| label: libraries-and-data-import
+
+source("library_and_data_import.R")
+source("china_us_flight_data_wrangling.R")
+
+```
+
+### U.S.-China Route Availability Map
+
+```{r}
+#| label: connectivity
+#| echo: FALSE
+
+df_china_region_connectivity <- df_china_passenger_route_departure_performed_by_year %>% 
+  group_by(cn_airport_category, us_airport_category, date) %>% 
+  summarise(
+    departures = sum(departures, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  complete(
+    date = seq(min(date), max(date), by = "month"),
+    fill = list(departures = 0)
+  )
+
+df_china_region_connectivity_heatmap <- df_china_region_connectivity %>%
+  mutate(
+    date = as.Date(date),
+    month = floor_date(date, "month"),
+    route = paste(cn_airport_category, "→", us_airport_category)
+  ) %>%
+  group_by(month, route) %>%
+  summarise(departures = sum(departures), .groups = "drop") %>%
+  complete(
+    month = seq(min(month), max(month), by = "month"),
+    route,
+    fill = list(departures = 0)
+  )
+
+tile_region_heatmap <- ggplot(df_china_region_connectivity_heatmap, 
+       aes(x = month, y = fct_reorder(route, departures, .fun = sum), 
+           fill = departures)) +
+  geom_tile(height = 0.9) +
+  scale_x_date(date_breaks = "6 months", date_labels = "%Y-%m") +
+  scale_fill_viridis_c() +
+  labs(x = NULL, y = NULL, fill = "Departures") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid = element_blank())
+
+
+df_year_china_region_connectivity <- df_china_region_connectivity %>%
+  mutate(year = year(as.Date(date))) %>%
+  group_by(year, cn_airport_category, us_airport_category) %>%
+  summarise(departures = sum(departures), .groups = "drop")
+
+alluvial_connectivity_by_region <- ggplot(df_year_china_region_connectivity,
+       aes(axis1 = cn_airport_category, axis2 = us_airport_category, y = departures)) +
+  geom_alluvium(aes(fill = cn_airport_category), alpha = 0.8) +
+  geom_stratum(width = 1/8, color = "grey40") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 3) +
+  scale_x_discrete(limits = c("China region", "U.S. region"), expand = c(.05, .05)) +
+  labs(x = NULL, y = "Departures") +
+  theme_minimal(base_size = 12)
+
+df_china_route_availability <- df_china_passenger_route_departure_performed_by_year %>% 
+  group_by(route, date) %>% 
+  summarise(
+    departures = sum(departures, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  complete(route, date = seq(min(date), max(date), by = "month"),
+           fill = list(departures = 0))
+
+df_segments_china_route_availability <- df_china_route_availability %>%
+  arrange(route, date) %>%
+  group_by(route) %>%
+  mutate(
+    active = departures > 0,
+    # start of a new active run when active turns TRUE from FALSE
+    run_start = active & !lag(active, default = FALSE),
+    run_id = cumsum(run_start)
+  ) %>%
+  filter(active) %>%
+  group_by(route, run_id) %>%
+  summarise(
+    start = min(date),
+    end   = max(date) %m+% months(1),   # extend to cover the last month visually
+    avg_departures = mean(departures),
+    .groups = "drop"
+  ) %>% 
+  mutate(
+    route = reorder(route, start)
+  )
+
+
+route_life_bar_plot <- ggplot(df_segments_china_route_availability,
+       aes(y = route, yend = route,
+           x = start, xend = end,
+           size = avg_departures)) +
+  geom_rect(
+    aes(xmin = as.Date("2020-02-01"),
+      xmax = as.Date("2022-12-01"),
+      ymin = -Inf,
+      ymax = Inf),
+    fill = "grey80",
+    alpha = 0.05,
+    inherit.aes = FALSE
+  ) +
+  geom_segment(lineend = "butt", color = "steelblue") +
+  scale_size(range = c(0.4, 4), name = "Avg monthly departures") +
+  labs(
+    x = "Month/Year",
+    y = "Route",
+    title = "U.S.–China routes over time (accounts for disappearances and recoveries)",
+    subtitle = "Each bar is a continuous run of service; thickness reflects average monthly frequency"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8))
+
+heat_map_route_timeline <- ggplot(df_china_route_availability,
+       aes(x = date, y = route, fill = departures)) +
+  geom_tile(height = 0.9) +
+  scale_fill_viridis_c(
+    option = "C",
+    trans = "sqrt",
+    name = "Monthly departures"
+  ) +
+  labs(
+    x = "Month",
+    y = "Route",
+    title = "U.S.–China route availability and frequency over time"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 8),
+    panel.grid = element_blank()
+  )
+
+tile_region_heatmap
+alluvial_connectivity_by_region
+route_life_bar_plot
+heat_map_route_timeline
+
+
+```
+
+
+
+
+
+### Models for China-U.S. Flights Responding to COVID by carrier nationality
+
+```{r}
+
+capacity_response_model <- lm(
+  log(seats) ~
+    policy_regime * chinese_carrier +
+    factor(route) +
+    factor(CARRIER) +
+    factor(MONTH),
+  data = df_china_passenger_route_departure_performed_by_year
+)
+
+frequency_response_model <- lm(
+  log(departures) ~
+    policy_regime * chinese_carrier +
+    factor(route) +
+    factor(CARRIER) +
+    factor(MONTH),
+  data = df_china_passenger_route_departure_performed_by_year
+)
+
+utilization_response_model <- lm(
+  load_factor ~
+    policy_regime * chinese_carrier +
+    factor(route) +
+    factor(CARRIER) +
+    factor(MONTH),
+  data = df_china_passenger_route_departure_performed_by_year
+)
+
+strategy_model <- lm(
+  capacity_per_departure ~ 
+    policy_regime * chinese_carrier +
+    factor(route) +
+    factor(CARRIER) +
+    factor(MONTH),
+  data = df_china_passenger_route_departure_performed_by_year
+)
+
+summary(capacity_response_model)
+summary(frequency_response_model)
+summary(utilization_response_model)
+summary(strategy_model)
+
+
+pred_utilization <- predictions(
+  utilization_response_model,
+  newdata = datagrid(
+    policy_regime = c("pre_covid", "china_lockdown", "post_covid"),
+    chinese_carrier = c(FALSE, TRUE)
+  )
+)
+
+pred_capacity_per_departure <- predictions(
+  strategy_model,
+  newdata = datagrid(
+    policy_regime = c("pre_covid", "china_lockdown", "post_covid"),
+    chinese_carrier = c(FALSE, TRUE)
+))
+
+carrier_nationality_capacity_chart <- ggplot(pred_capacity_per_departure, aes(
+  x = policy_regime,
+  y = estimate,
+  color = chinese_carrier,
+  group = chinese_carrier
+)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.15
+  )
+
+
+carrier_nationality_utilization_chart <- ggplot(pred_utilization, aes(
+  x = policy_regime,
+  y = estimate,
+  color = chinese_carrier,
+  group = chinese_carrier
+)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.15
+  ) +
+  labs(
+    x = "Policy regime",
+    y = "Predicted load factor (%)",
+    color = "Chinese carrier",
+    title = "Chinese carriers operate significantly fuller planes post-covid",
+    subtitle = "Predicted from route-, carrier-, and month-fixed effects model"
+  ) +
+  theme_minimal() 
+
+
+carrier_nationality_utilization_chart
+
+```
+
+```{r}
+#| label: plotly-visualizations-china-us-routes
+
+china_us_load_factor_viz <- plot_ly(
+  df_china_passenger_route_departure_performed_by_year,
+  x = ~departures,
+  y = ~passengers,
+  color = ~load_factor,
+  size = ~seats,
+  sizes = c(10, 60),
+  text = ~paste(
+    "Route:", cn_airport, "-", us_airport,
+    "<br>Year:", YEAR,
+    "<br>Load Factor:", round(load_factor, 1), "%"
+  ),
+  type = "scatter",
+  mode = "markers"
+)
+
+china_us_load_factor_viz
+
+```
+
