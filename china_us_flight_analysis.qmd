@@ -276,5 +276,26 @@ china_us_load_factor_viz <- plot_ly(
 
 china_us_load_factor_viz
 
+df_2024_cn_route_departure <- df_china_passenger_route_departure_performed_by_year %>% 
+  filter(YEAR == 2024)
+
+china_us_2024_load_factor_viz <- plot_ly(
+  df_2024_cn_route_departure,
+  x = ~departures,
+  y = ~passengers,
+  color = ~load_factor,
+  size = ~seats,
+  sizes = c(10, 60),
+  text = ~paste(
+    "Route:", cn_airport, "-", us_airport,
+    "<br>Year:", YEAR,
+    "<br>Load Factor:", round(load_factor, 1), "%"
+  ),
+  type = "scatter",
+  mode = "markers"
+)
+
+china_us_2024_load_factor_viz
+
 ```
 
