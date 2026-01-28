@@ -4,7 +4,7 @@
 library(readr)
 library(dplyr)
 
-df_openflights_airports <- read_csv("airports.dat",
+df_openflights_airports <- read_csv("data/airports.dat",
                                     col_names = c("airport_id",
                                                   "name",
                                                   "city",
@@ -20,10 +20,10 @@ df_openflights_airports <- read_csv("airports.dat",
                                                   "type",
                                                   "source"))
 
-df_openflights_planes <- read_csv("planes.dat", 
+df_openflights_planes <- read_csv("data/planes.dat", 
                                   col_names = c("name", "iata_code", "icao_code"))
 
-df_airlines <- read_csv("airlines.dat",
+df_airlines <- read_csv("data/airlines.dat",
                         col_names = c("airline_id",
                                       "name",
                                       "alias",

@@ -7,8 +7,8 @@ author: "Diego Ge"
 ```{r}
 #| label: libraries-and-data-import
 
-source("library_and_data_import.R")
-source("china_us_flight_data_wrangling.R")
+source("scripts/library_and_data_import.R")
+source("scripts/china_us_flight_data_wrangling.R")
 
 ```
 

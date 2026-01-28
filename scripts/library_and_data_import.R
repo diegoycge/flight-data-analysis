@@ -102,7 +102,7 @@ normalize_aircraft <- function(x) {
 # Enumerating source files into list
 
 files <- list.files(
-  path = ".",
+  path = "data",
   pattern = "^[0-9]{4}\\.csv$",
   full.names = TRUE)
 
@@ -113,7 +113,7 @@ df_all <- lapply(files, read_csv) %>%
 
 # Reading original data mapping file of aircraft type and replacing values
 
-aircraft_type_map <- read_csv("L_AIRCRAFT_TYPE.csv") %>% 
+aircraft_type_map <- read_csv("data/L_AIRCRAFT_TYPE.csv") %>% 
   rename(
     AIRCRAFT_TYPE = Code,
     AIRCRAFT = Description
