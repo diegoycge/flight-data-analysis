@@ -122,3 +122,9 @@ aircraft_type_map <- read_csv("data/L_AIRCRAFT_TYPE.csv") %>%
     AIRCRAFT_NORMALIZED = normalize_aircraft(AIRCRAFT)
   )
 
+airfare <- read_csv("data/airfare-data-top-thousand-markets.csv")
+
+airfare <- airfare %>% 
+  mutate(fare = parse_number(fare),
+         fare_lg = parse_number(fare_lg),
+         fare_low = parse_number(fare_low))

@@ -4,6 +4,13 @@ format: html
 editor: source
 ---
 
+
+```{r}
+source("scripts/library_and_data_import.R")
+source("scripts/china_us_flight_data_wrangling.R")
+```
+
+
 ## All U.S. Carriers
 
 ### Extracting dataset
@@ -100,4 +107,54 @@ df_rdu_us_carrier_routes_competition <- df_rdu_us_carrier_routes %>%
   ungroup()
 
 ```
+
+### Air fare analysis
+
+```{r}
+
+rdu_ny_airfare <- airfare %>% filter(
+  citymarketid_1 == 31703,
+  citymarketid_2 == 34492
+)
+
+
+airfare <- airfare %>% 
+  mutate(fare_per_mile = fare / nsmiles)
+
+
+airfare %>% ggplot(aes(x = large_ms, y = fare_per_mile)) +
+  geom_smooth()
+
+cor.test(airfare$large_ms, airfare$fare_per_mile, method = "pearson")
+
+set.seed(1120)
+
+boot_fits <- airfare %>% 
+  specify(fare_per_mile ~ large_ms) %>% 
+  generate(reps = 1000, type = "bootstrap") %>% 
+  fit()
+
+observed_fit <- airfare %>% 
+  specify(fare_per_mile ~ large_ms) %>% 
+  fit()
+
+get_confidence_interval(
+  boot_fits, 
+  point_estimate = observed_fit, 
+  level = 0.95,
+  type = "percentile"
+)
+
+fit <- lm(fare_per_mile ~ large_ms, data = airfare)
+  
+
+new_case <- tibble(large_ms = 0.9)
+
+predict(fit, new_case, interval = "prediction", 
+        level = 0.9)
+  
+```
+
+
+
 
