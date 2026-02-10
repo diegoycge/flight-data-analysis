@@ -34,10 +34,6 @@ airfare <- airfare %>%
 # normalizing year and dropping unused columns
 # filtering for post-2015 and only major U.S. carriers
 
-airfare$quarter <- as.factor(airfare$quarter)
-airfare$carrier_lg <- as.factor(airfare$carrier_lg)
-airfare$carrier_low <- as.factor(airfare$carrier_low)
-
 airfare_post2015 <- airfare %>% 
   mutate(
     year_since_2015 = Year - 2015,
@@ -54,21 +50,27 @@ airfare_post2015 <- airfare %>%
     carrier_lg %in% c("B6", "WN", "DL", "UA", "AS", "AA", "NK", "F9"),
     year_since_2015 >= 0
   )
-# Is there a linear relationship between distance and airfare?
 
-set.seed(996)
+airfare_post2015$quarter <- as.factor(airfare_post2015$quarter)
+airfare_post2015$carrier_lg <- as.factor(airfare_post2015$carrier_lg)
+airfare_post2015$carrier_low <- as.factor(airfare_post2015$carrier_low)
 
-airfare_post2015 %>% 
-  ggplot(aes(x = covid, y = fare)) +
-  geom_boxplot()
+large_carrier_airfare <- airfare_post2015 %>% 
+  filter(carrier_lg %in% c("AA", "DL", "UA", "AK"))
 
-model_dist_fare <- lm(fare ~ carrier_lg, 
-                      data = airfare_post2015)
+large_carrier_airfare <- large_carrier_airfare |>
+  mutate(carrier_lg = relevel(factor(carrier_lg), ref = "AA"))
 
-# Linearity and equal variance check
+fit <- lm(
+  fare ~ carrier_lg +
+         nsmiles +
+         passengers +
+         lf_ms +
+         large_ms +
+         year_since_2015 + quarter,
+  data = large_carrier_airfare
+)
 
-tidy(model_dist_fare, conf.int = TRUE)
-glance(model_dist_fare)
-
+summary(fit)
 ```
 
