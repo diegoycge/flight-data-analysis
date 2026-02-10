@@ -1,0 +1,74 @@
+---
+title: "modelling practice in airfare"
+format: html
+---
+
+```{r}
+#| label: library-and-data-import
+#| message: FALSE
+#| warning: FALSE
+#| echo: FALSE
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(tidyr)
+library(tidymodels)
+
+airfare <- read_csv("data/airfare-data-top-thousand-markets.csv")
+
+airfare <- airfare %>% 
+  mutate(fare = parse_number(fare),
+         fare_lg = parse_number(fare_lg),
+         fare_low = parse_number(fare_low))
+
+
+```
+
+
+
+```{r}
+#| label: airfare-exploratory-analysis
+
+# normalizing year and dropping unused columns
+# filtering for post-2015 and only major U.S. carriers
+
+airfare$quarter <- as.factor(airfare$quarter)
+airfare$carrier_lg <- as.factor(airfare$carrier_lg)
+airfare$carrier_low <- as.factor(airfare$carrier_low)
+
+airfare_post2015 <- airfare %>% 
+  mutate(
+    year_since_2015 = Year - 2015,
+    covid = case_when(
+      Year == 2020 | Year == 2021 ~ TRUE,
+      TRUE ~ FALSE
+    )
+  ) %>% 
+  select(
+    -table_1_flag,
+    -contains("Geocoded")
+  ) %>% 
+  filter(
+    carrier_lg %in% c("B6", "WN", "DL", "UA", "AS", "AA", "NK", "F9"),
+    year_since_2015 >= 0
+  )
+# Is there a linear relationship between distance and airfare?
+
+set.seed(996)
+
+airfare_post2015 %>% 
+  ggplot(aes(x = covid, y = fare)) +
+  geom_boxplot()
+
+model_dist_fare <- lm(fare ~ carrier_lg, 
+                      data = airfare_post2015)
+
+# Linearity and equal variance check
+
+tidy(model_dist_fare, conf.int = TRUE)
+glance(model_dist_fare)
+
+```
+

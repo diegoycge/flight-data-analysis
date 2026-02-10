@@ -10,6 +10,8 @@ library(marginaleffects)
 library(lubridate)
 library(tidyr)
 library(ggalluvial)
+library(tidymodels)
+library(easystats)
 
 
 # This function replaces original values of aircraft type with a standard form
